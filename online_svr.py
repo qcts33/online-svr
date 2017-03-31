@@ -18,6 +18,7 @@ uses a Radial Basis Function).
 
 import sys
 import numpy as np
+from sklearn.gaussian_process.kernels import RBF
 
 
 def sign(x):
@@ -31,7 +32,14 @@ def sign(x):
 
 
 class OnlineSVR:
-    def __init__(self, numFeatures, C, eps, kernelParam, bias=0, debug=False):
+    def __init__(self,
+                 numFeatures,
+                 C,
+                 eps,
+                 kernelParam,
+                 bias=0,
+                 debug=False,
+                 verbose=False):
         # Configurable Parameters
         self.numFeatures = numFeatures
         self.C = C
@@ -39,6 +47,7 @@ class OnlineSVR:
         self.kernelParam = kernelParam
         self.bias = bias
         self.debug = debug
+        self.verbose = verbose
 
         print('SELF', self.C, self.eps, self.kernelParam)
         # Algorithm initialization
@@ -53,6 +62,7 @@ class OnlineSVR:
         self.errorSetIndices = list()
         self.remainderSetIndices = list()
         self.R = np.matrix([])
+        # self.rbf = RBF(np.sqrt(1/(2*kernelParam)))
 
     def findMinVariation(self, H, beta, gamma, i):
         """ Finds the variations of each sample to the new set.
@@ -131,9 +141,11 @@ class OnlineSVR:
 
         if g <= 0:
             Lc1 = np.array(q * np.inf)
-        elif H[i] > self.eps and -self.C < self.weights[i] and self.weights[i] <= 0:
+        elif (H[i] > self.eps and -self.C < self.weights[i] and
+              self.weights[i] <= 0):
             Lc1 = (-H[i] + self.eps) / g
-        elif H[i] < -self.eps and 0 <= self.weights[i] and self.weights[i] <= self.C:
+        elif (H[i] < -self.eps and 0 <= self.weights[i] and
+              self.weights[i] <= self.C):
             Lc1 = (-H[i] - self.eps) / g
         else:
             print('Something is weird.')
@@ -324,6 +336,9 @@ class OnlineSVR:
             print('distance', X)
             print('kernelOutput', y)
         return y
+        # X1 = set1.reshape((-1, self.numFeatures))
+        # X2 = set2.reshape((-1, self.numFeatures))
+        # return self.rbf(X1, X2)
 
     def predict(self, newSampleX):
         X = np.array(self.X)
@@ -375,30 +390,34 @@ class OnlineSVR:
         return beta, gamma
 
     def computeQ(self, set1, set2):
-        set1 = np.matrix(set1)
-        set2 = np.matrix(set2)
-        Q = np.matrix(np.zeros([set1.shape[0], set2.shape[0]]))
-        for i in range(set1.shape[0]):
-            for j in range(set2.shape[0]):
-                Q[i, j] = self.computeKernelOutput(set1[i, :], set2[j, :])
+        # set1 = np.matrix(set1)
+        # set2 = np.matrix(set2)
+        # Q = np.matrix(np.zeros([set1.shape[0], set2.shape[0]]))
+        # for i in range(set1.shape[0]):
+        #     for j in range(set2.shape[0]):
+        #         Q[i, j] = self.computeKernelOutput(set1[i, :], set2[j, :])
+        Q = self.computeKernelOutput(set1, set2)
         return np.matrix(Q)
 
     def adjustSets(self, H, beta, gamma, i, flag, minIndex):
-        print('Entered adjustSet logic with flag {0} and minIndex {1}.'.format(
-            flag, minIndex))
+        if self.verbose:
+            print('Entered adjustSet logic with flag {0} and minIndex {1}.'.
+                  format(flag, minIndex))
         if flag not in range(5):
             print('Received unexpected flag {0}, exiting.'.format(flag))
             sys.exit()
         # add new sample to Support set
         if flag == 0:
-            print('Adding new sample {0} to support set.'.format(i))
+            if self.verbose:
+                print('Adding new sample {0} to support set.'.format(i))
             H[i] = np.sign(H[i]) * self.eps
             self.supportSetIndices.append(i)
             self.R = self.addSampleToR(i, 'SupportSet', beta, gamma)
             return H, True
         # add new sample to Error set
         elif flag == 1:
-            print('Adding new sample {0} to error set.'.format(i))
+            if self.verbose:
+                print('Adding new sample {0} to error set.'.format(i))
             self.weights[i] = np.sign(self.weights[i]) * self.C
             self.errorSetIndices.append(i)
             return H, True
@@ -414,8 +433,9 @@ class OnlineSVR:
                 weightsValue = self.weights[index]
             # Move from support to remainder set
             if weightsValue == 0:
-                print('Moving sample {0} from support to remainder set.'.
-                      format(index))
+                if self.verbose:
+                    print('Moving sample {0} from support to remainder set.'.
+                          format(index))
                 self.remainderSetIndices.append(index)
                 self.R = self.removeSampleFromR(minIndex)
                 self.supportSetIndices.pop(minIndex)
@@ -433,7 +453,9 @@ class OnlineSVR:
         # move sample from Error set to Support set
         elif flag == 3:
             index = self.errorSetIndices[minIndex]
-            print('Moving sample {0} from error to support set.'.format(index))
+            if self.verbose:
+                print('Moving sample {0} from error to support set.'.format(
+                    index))
             H[index] = np.sign(H[index]) * self.eps
             self.supportSetIndices.append(index)
             self.errorSetIndices.pop(minIndex)
@@ -441,8 +463,9 @@ class OnlineSVR:
         # move sample from Remainder set to Support set
         elif flag == 4:
             index = self.remainderSetIndices[minIndex]
-            print('Moving sample {0} from remainder to support set.'.format(
-                index))
+            if self.verbose:
+                print('Moving sample {0} from remainder to support set.'.
+                      format(index))
             H[index] = np.sign(H[index]) * self.eps
             self.supportSetIndices.append(index)
             self.remainderSetIndices.pop(minIndex)
@@ -450,10 +473,12 @@ class OnlineSVR:
         return H, False
 
     def addSampleToR(self, sampleIndex, sampleOldSet, beta, gamma):
-        print('Adding sample {0} to R matrix.'.format(sampleIndex))
+        if self.verbose:
+            print('Adding sample {0} to R matrix.'.format(sampleIndex))
         X = np.array(self.X)
         sampleX = X[sampleIndex, :]
-        sampleX.shape = (sampleX.size // self.numFeatures, self.numFeatures)
+        sampleX = sampleX.reshape((-1, self.numFeatures))
+        # sampleX.shape = (sampleX.size // self.numFeatures, self.numFeatures)
         # Add first element
         if self.R.shape[0] <= 1:
             Rnew = np.ones([2, 2])
@@ -483,14 +508,14 @@ class OnlineSVR:
                 beta1 = np.append(beta, [[1]], axis=0)
                 Rnew = Rnew + 1 / gamma[sampleIndex].item() * beta1 @ beta1.T
             if np.any(np.isnan(Rnew)):
-                print(
-                    'R has become inconsistent. Training failed at sampleIndex {0}'.
-                    format(sampleIndex))
+                print('R has become inconsistent. \
+                    Training failed at sampleIndex {0}'.format(sampleIndex))
                 sys.exit()
         return Rnew
 
     def removeSampleFromR(self, sampleIndex):
-        print('Removing sample {0} from R matrix.'.format(sampleIndex))
+        if self.verbose:
+            print('Removing sample {0} from R matrix.'.format(sampleIndex))
         sampleIndex += 1
         I = list(range(sampleIndex))
         I.extend(range(sampleIndex + 1, self.R.shape[0]))
@@ -508,9 +533,8 @@ class OnlineSVR:
             Rnew = np.copy(self.R[I.T, I])
         # Check for bad things
         if np.any(np.isnan(Rnew)):
-            print(
-                'R has become inconsistent. Training failed removing sampleIndex {0}'.
-                format(sampleIndex))
+            print('R has become inconsistent. \
+                Training failed removing sampleIndex {0}'.format(sampleIndex))
             sys.exit()
         if Rnew.size == 1:
             print('Time to annhilate R? R:', Rnew)
@@ -527,8 +551,9 @@ class OnlineSVR:
 
         # correctly classified sample, skip the rest of the algorithm!
         if (abs(H[i]) <= self.eps):
-            print('Adding new sample {0} to remainder set, within eps.'.format(
-                i))
+            if self.verbose:
+                print('Adding new sample {0} to remainder set, within eps.'.
+                      format(i))
             if self.debug:
                 print('weights', self.weights)
             self.remainderSetIndices.append(i)
@@ -570,9 +595,10 @@ class OnlineSVR:
 
 def main(argv):
     # Test of Online SVR algorithm
-    debug = True if len(argv) > 1 and argv[1] == 'debug' else False
+    np.random.seed(56)
+    debug = False
     # testSetX = np.array([[0.1],[0.2],[0.3],[0.4],[0.5]])
-    testSetX = np.random.rand(10, 2)
+    testSetX = np.random.rand(100, 2)
     testSetY = np.sin(2 * np.pi * testSetX[:, 0] + testSetX[:, 1])
     OSVR = OnlineSVR(
         numFeatures=testSetX.shape[1],
@@ -583,19 +609,22 @@ def main(argv):
         debug=debug)
 
     for i in range(testSetX.shape[0]):
-        print('%%%%%%%%%%%%%%% Data point {0} %%%%%%%%%%%%%%%'.format(i))
+        # print('%%%%%%%%%%%%%%% Data point {0} %%%%%%%%%%%%%%%'.format(i))
         OSVR.learn(testSetX[i, :], testSetY[i])
     # Predict stuff as quick test
-    testX = np.array([[0.15, 0.1], [0.25, 0.2]])
-    testY = np.sin(2 * np.pi * testX)
+    # testX = np.array([[0.15, 0.1], [0.25, 0.2]])
+    testX = np.random.rand(10, 2)
+    testY = np.sin(2 * np.pi * testX[:, 0] + testX[:, 1])
     print('testX:', testX)
     print('testY:', testY)
-    PredictedY = OSVR.predict(np.array([testX[0, :]]))
-    Error = OSVR.computeMargin(testX[0], testY[0])
+    PredictedY = OSVR.predict(testX)
+    Error = OSVR.computeMargin(testX, testY)
     print('PredictedY:', PredictedY)
     print('Error:', Error)
     return OSVR
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    # main(sys.argv)
+    import cProfile
+    cProfile.run('main(sys.argv)')
